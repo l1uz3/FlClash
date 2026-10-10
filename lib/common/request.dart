@@ -76,10 +76,11 @@ class Request {
       );
       if (response.statusCode != 200) return null;
       final data = response.data as Map<String, dynamic>;
-      final remoteVersion = data['tag_name'];
+      final tag = data['tag_name'] as String;
+      // Upstream tags are "v1.2.3", this fork's are "punch-v1.2.3".
+      final remoteVersion = tag.replaceFirst(RegExp('^[^0-9]+'), '');
       final version = globalState.packageInfo.version;
-      final hasUpdate =
-          compareVersions(remoteVersion.replaceAll('v', ''), version) > 0;
+      final hasUpdate = compareVersions(remoteVersion, version) > 0;
       if (!hasUpdate) return null;
       return data;
     } catch (e) {

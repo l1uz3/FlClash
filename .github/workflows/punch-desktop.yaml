@@ -1,0 +1,123 @@
+name: punch-desktop
+
+# Windows and macOS installers for this fork. The upstream build.yaml only packages on
+# chen08209/FlClash tags, so it never produces desktop bundles here.
+#
+# Builds are unsigned: there is no Apple Developer ID or Windows code-signing certificate.
+# macOS shows "cannot be opened because the developer cannot be verified" on first launch and
+# Windows SmartScreen warns on the installer; both are expected for this build.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - punch
+    tags:
+      - 'punch-v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.4'
+  GO_VERSION: '1.26.4'
+
+jobs:
+  desktop:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-2022
+            arch: amd64
+          - platform: macos
+            os: macos-latest
+            arch: arm64
+          - platform: macos
+            os: macos-15-intel
+            arch: amd64
+    steps:
+      - name: Enable git long paths (Windows)
+        if: matrix.platform == 'windows'
+        run: git config --global core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: punch-${{ matrix.platform }}-${{ matrix.arch }}
+          workspaces: services/helper
+          cache-directories: .dart_tool/hooks_runner
+
+      # Matches the upstream release matrix: master makes the action clone the SDK at the
+      # pinned tag, which also covers hosts the stable archive does not ship for.
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: master
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Setup Xcode
+        if: matrix.platform == 'macos'
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app || sudo xcode-select -s /Applications/Xcode_26.2.app
+          xcodebuild -version
+
+      - name: Flutter dependencies
+        run: |
+          flutter --version
+          flutter pub get
+
+      # See .agents/flutter-upgrade.md before bumping FLUTTER_VERSION.
+      - name: Disable Impeller on Intel macOS
+        if: matrix.platform == 'macos' && matrix.arch == 'amd64'
+        run: plutil -replace FLTEnableImpeller -bool NO macos/Runner/Info.plist
+
+      - name: Build
+        run: dart setup.dart ${{ matrix.platform }} --env stable -v
+
+      # The punch dialer ships inside the Go core, which the build writes to libclash/<platform>/
+      # before bundling it into the app. Fail if it was built without the dialer.
+      - name: Verify the core carries the punch dialer
+        shell: bash
+        run: |
+          core=libclash/${{ matrix.platform }}/FlClashCore
+          [ "${{ matrix.platform }}" = windows ] && core="$core.exe"
+          test -f "$core" || { echo "::error::$core not found"; ls -la libclash/${{ matrix.platform }} || true; exit 1; }
+          grep -q 'component/punch' "$core" \
+            || { echo "::error::$core was built without the punch dialer"; exit 1; }
+          echo "ok: $core carries component/punch"
+          ls -la dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flclash-punch-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.dmg
+          if-no-files-found: error
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/punch-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.dmg
