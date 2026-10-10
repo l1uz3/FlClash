@@ -2,13 +2,18 @@ name: punch-android
 
 # Signed Android build for this fork. The upstream build.yaml only packages on
 # chen08209/FlClash tags, so it never produces an APK here.
+# main only changes through pull requests, which build here first; pushes to main and
+# punch-v* tags then build the packages that get shipped.
 on:
   workflow_dispatch:
   push:
     branches:
-      - punch
+      - main
     tags:
       - 'punch-v*'
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,6 +26,8 @@ env:
 
 jobs:
   android:
+    # Pull requests from other forks get no secrets, so they cannot sign; skip instead of failing.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
