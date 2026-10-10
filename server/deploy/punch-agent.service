@@ -1,0 +1,14 @@
+[Unit]
+Description=punch agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Root for tcpdump (sees the clients' SYNs) and iptables (keeps the kernel from resetting them).
+ExecStart=/usr/local/bin/punch-server agent -config /etc/punch/punch.env
+Restart=always
+RestartSec=3
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
