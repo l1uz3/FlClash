@@ -86,11 +86,18 @@ jobs:
         run: dart setup.dart android --env stable -v
 
       - name: Verify signature
+        env:
+          # SHA-256 of the release certificate; a debug-signed APK must fail here.
+          EXPECTED_CERT: 348c74fe360a1757f8883e366f8a2e64c36406a2403585839cce1b9401a1b642
         run: |
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          test -x "$apksigner" || { echo "apksigner not found" >&2; exit 1; }
           for apk in dist/*.apk; do
             echo "== $apk"
-            "$apksigner" verify --print-certs "$apk" | grep -E 'Signer #1 certificate (DN|SHA-256)'
+            out=$("$apksigner" verify --verbose --print-certs "$apk" 2>&1) || { echo "$out"; exit 1; }
+            echo "$out" | grep -iE 'Verified using|certificate (DN|SHA-256)' || true
+            echo "$out" | tr -d ':' | tr 'A-F' 'a-f' | grep -q "$EXPECTED_CERT" \
+              || { echo "::error::$apk is not signed with the release key"; echo "$out"; exit 1; }
           done
 
       - name: Upload artifact
