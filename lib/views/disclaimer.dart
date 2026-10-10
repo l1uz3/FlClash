@@ -140,13 +140,11 @@ class _DisclaimerTerm extends StatelessWidget {
   final int index;
   final String title;
   final String content;
-  final List<Widget> children;
 
   const _DisclaimerTerm({
     required this.index,
     required this.title,
     required this.content,
-    this.children = const [],
   });
 
   static const _badgeSize = 28.0;
@@ -193,8 +191,6 @@ class _DisclaimerTerm extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _TermParagraphs(content),
-          for (final child in children)
-            Padding(padding: const EdgeInsets.only(top: 12), child: child),
         ],
       ),
     );
