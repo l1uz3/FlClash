@@ -22,6 +22,7 @@ import (
 
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/process"
+	"github.com/metacubex/mihomo/component/punch"
 	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/dns"
 	"github.com/metacubex/mihomo/listener/sing_tun"
@@ -262,6 +263,9 @@ func handleUpdateDns(value string) {
 		log.Infoln("[DNS] updateDns %s", value)
 		dns.UpdateSystemDNS(addr)
 		dns.FlushCacheWithDefaultResolver()
+		// Android pushes a new DNS list exactly when the underlying network changes, so this is
+		// also our network-change signal: drop punched sessions and re-probe the NAT type.
+		punch.NetworkChanged()
 	})
 }
 
