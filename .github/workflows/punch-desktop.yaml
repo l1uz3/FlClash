@@ -6,13 +6,18 @@ name: punch-desktop
 # Builds are unsigned: there is no Apple Developer ID or Windows code-signing certificate.
 # macOS shows "cannot be opened because the developer cannot be verified" on first launch and
 # Windows SmartScreen warns on the installer; both are expected for this build.
+# main only changes through pull requests, which build here first; pushes to main and
+# punch-v* tags then build the packages that get shipped.
 on:
   workflow_dispatch:
   push:
     branches:
-      - punch
+      - main
     tags:
       - 'punch-v*'
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
