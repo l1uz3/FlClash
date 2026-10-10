@@ -4,8 +4,6 @@ import android.app.ActivityManager
 import android.app.Application
 import android.os.Build
 import android.util.Log
-import com.google.firebase.FirebaseApp
-import com.google.firebase.crashlytics.FirebaseCrashlytics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,17 +35,13 @@ object GlobalState : CoroutineScope by CoroutineScope(SupervisorJob() + Dispatch
     }
 
     fun setCrashlytics(enable: Boolean) {
-        FirebaseApp.initializeApp(application)
-        FirebaseCrashlytics.getInstance().isCrashlyticsCollectionEnabled = enable
+        // This build carries no Firebase: there is no google-services project to report to.
         if (enable) {
-            log("Crashlytics enabled")
+            log("Crash reporting is not included in this build")
         }
     }
 
-    fun didCrashOnPreviousExecution(): Boolean {
-        FirebaseApp.initializeApp(application)
-        return FirebaseCrashlytics.getInstance().didCrashOnPreviousExecution()
-    }
+    fun didCrashOnPreviousExecution(): Boolean = false
 
     fun lastExitInfo(): Map<String, Any?>? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
