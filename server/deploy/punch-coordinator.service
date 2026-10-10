@@ -1,0 +1,17 @@
+[Unit]
+Description=punch coordinator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/punch-server coordinator -config /etc/punch/punch.env
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/punch /etc/punch
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
