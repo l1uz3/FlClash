@@ -11,7 +11,6 @@ type nodeTemplate struct {
 	Name     string
 	Cipher   string
 	Password string
-	Smux     bool
 	Source   string
 }
 
@@ -19,7 +18,6 @@ const (
 	keyNodeName     = "PUNCH_NODE_NAME"
 	keyNodeCipher   = "PUNCH_NODE_CIPHER"
 	keyNodePassword = "PUNCH_NODE_PASSWORD"
-	keyNodeSmux     = "PUNCH_NODE_SMUX"
 	keyPublicAddr   = "PUNCH_PUBLIC_ADDR"
 )
 
@@ -28,7 +26,6 @@ func templateFromConfig(c *config) nodeTemplate {
 		Name:     c.str(keyNodeName, "punch"),
 		Cipher:   c.str(keyNodeCipher, "2022-blake3-aes-256-gcm"),
 		Password: c.str(keyNodePassword, ""),
-		Smux:     c.str(keyNodeSmux, "true") != "false",
 		Source:   "手动模板",
 	}
 }
@@ -92,15 +89,14 @@ func renderClientYAML(t nodeTemplate, ci clientInfo, u user) string {
 	fmt.Fprintf(&b, "    port: 1\n")
 	fmt.Fprintf(&b, "    cipher: %s\n", t.Cipher)
 	fmt.Fprintf(&b, "    password: %s\n", q(t.Password))
-	if t.Smux {
-		// The tunnel carries only TCP; UDP needs smux to ride inside it.
-		fmt.Fprintf(&b, "    udp: true\n")
-		fmt.Fprintf(&b, "    smux:\n")
-		fmt.Fprintf(&b, "      enabled: true\n")
-		fmt.Fprintf(&b, "      protocol: h2mux\n")
-		fmt.Fprintf(&b, "      max-connections: 1\n")
-		fmt.Fprintf(&b, "      padding: false\n")
-	}
+	// smux is required: the tunnel carries only TCP, so UDP has to ride inside it, and one smux
+	// connection measured the fastest and steadiest over the punched path.
+	fmt.Fprintf(&b, "    udp: true\n")
+	fmt.Fprintf(&b, "    smux:\n")
+	fmt.Fprintf(&b, "      enabled: true\n")
+	fmt.Fprintf(&b, "      protocol: h2mux\n")
+	fmt.Fprintf(&b, "      max-connections: 1\n")
+	fmt.Fprintf(&b, "      padding: false\n")
 	fmt.Fprintf(&b, "    punch:\n")
 	fmt.Fprintf(&b, "      coordinator: %s\n", ci.Coordinator)
 	fmt.Fprintf(&b, "      fingerprint: %s\n", ci.Fingerprint)
