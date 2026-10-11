@@ -107,16 +107,41 @@ jobs:
               || { echo "::error::$apk is not signed with the release key"; echo "$out"; exit 1; }
           done
 
-      - name: Upload artifact
+      # One artifact per ABI, so each APK downloads on its own instead of inside one zip.
+      - name: Upload arm64-v8a
         uses: actions/upload-artifact@v4
         with:
-          name: flclash-punch-android
-          path: dist/*.apk
+          name: flclash-punch-android-arm64-v8a
+          path: dist/*-arm64-v8a.apk
           if-no-files-found: error
 
+      - name: Upload armeabi-v7a
+        uses: actions/upload-artifact@v4
+        with:
+          name: flclash-punch-android-armeabi-v7a
+          path: dist/*-armeabi-v7a.apk
+          if-no-files-found: error
+
+      - name: Upload x86_64
+        uses: actions/upload-artifact@v4
+        with:
+          name: flclash-punch-android-x86_64
+          path: dist/*-x86_64.apk
+          if-no-files-found: error
+
+      # punch-release creates the release; uploading only avoids two workflows creating it at once.
       - name: Release
         if: startsWith(github.ref, 'refs/tags/punch-v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.apk
-          generate_release_notes: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          for i in $(seq 1 30); do
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            sleep 10
+          done
+          shopt -s nullglob
+          files=(dist/*.apk)
+          test ${#files[@]} -gt 0 || { echo "::error::nothing to upload"; exit 1; }
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber "${files[@]}"
