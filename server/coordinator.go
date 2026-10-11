@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -24,7 +23,7 @@ func runCoordinator(cfg *coordConfig) error {
 		return fmt.Errorf("TLS setup: %v", err)
 	}
 	logf("coord", "certificate fingerprint (clients pin this): %s", fp)
-	ln, err := tls.Listen("tcp", cfg.Listen, tlsCfg)
+	raw, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return err
 	}
@@ -43,6 +42,7 @@ func runCoordinator(cfg *coordConfig) error {
 	} else {
 		logf("coord", "PUNCH_FW_ADD_URL not set: only clients behind port-preserving NAT can connect")
 	}
+	ln := newTLSListener(raw, tlsCfg, co.serveInstall)
 	logf("coord", "listening on %s, agent %s, server %s", cfg.Listen, cfg.Agent, cfg.ServerIP)
 	for {
 		c, err := ln.Accept()

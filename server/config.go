@@ -73,6 +73,7 @@ func (c *config) int(key string, def int) (int, error) {
 
 type coordConfig struct {
 	Listen     string
+	PublicAddr string
 	ProbePorts [2]string
 	Agent      string
 	AgentKey   string
@@ -89,6 +90,7 @@ type coordConfig struct {
 func coordFromConfig(c *config) (*coordConfig, error) {
 	cc := &coordConfig{
 		Listen:     c.str("PUNCH_LISTEN", ":48080"),
+		PublicAddr: c.str("PUNCH_PUBLIC_ADDR", ""),
 		ProbePorts: [2]string{c.str("PUNCH_PROBE_A", ":48082"), c.str("PUNCH_PROBE_B", ":48084")},
 		Tokens:     c.str("PUNCH_TOKENS", "/etc/punch/tokens"),
 		State:      c.str("PUNCH_STATE", "/var/lib/punch"),

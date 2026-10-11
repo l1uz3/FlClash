@@ -108,11 +108,29 @@ func (p *panel) agentSetup() {
 		return
 	}
 	fmt.Println("\n== 连接白名单服务器 ==")
-	target := p.ask("用户的流量最终交给哪个节点（你的 sing-box / Xray 等的 IP:端口）", c.str("PUNCH_TARGET_HINT", "127.0.0.1:34120"))
+	if v := agentVersion(agent, key); v != "" {
+		fmt.Printf(cGreen+"白名单服务器已连接，版本 %s（本机 %s）。\n"+cReset, v, version)
+		if v != version && p.confirm("把本机的版本推送过去") {
+			p.pushAgent(c)
+			return
+		}
+		if !p.confirm("重新安装") {
+			p.pause()
+			return
+		}
+	}
+	target := p.ask("用户的流量最终交给哪个节点（你的 sing-box 的 IP:端口）", c.str("PUNCH_TARGET_HINT", "127.0.0.1:34120"))
 	setEnvKeys(p.cfgPath, map[string]string{"PUNCH_TARGET_HINT": target})
-	fmt.Print("\n登录" + cBold + "白名单服务器" + cReset + "，用 root 运行下面这一行（已包含密钥）：\n\n")
-	fmt.Printf("%s\n", agentInstallCommand(agent, key, target))
-	fmt.Println("\n它会在那台机器上装好需要的程序，并设为开机自启。")
+	cmd, err := issueInstall(p.cfg())
+	if err != nil {
+		fmt.Println(cRed + err.Error() + cReset)
+		p.pause()
+		return
+	}
+	fmt.Print("\n登录" + cBold + "白名单服务器" + cReset + "，用 root 运行下面这一行：\n\n")
+	fmt.Println(cmd)
+	fmt.Println("\n程序直接从本机下载，那台机器不需要访问外网。")
+	fmt.Println("这行命令 10 分钟内有效，装好后立即失效。")
 	if p.confirm("\n运行完后按 y 测试连接") {
 		if err := pingAgent(agent, key); err != nil {
 			fmt.Println(cRed + "✗ " + err.Error() + cReset)
@@ -123,9 +141,51 @@ func (p *panel) agentSetup() {
 	p.pause()
 }
 
-func agentInstallCommand(listen, key, target string) string {
-	return fmt.Sprintf("curl -fsSL %s | bash -s -- agent --listen %s --key %s --target %s",
-		installScriptURL, listen, key, target)
+func (p *panel) pushAgent(c *config) {
+	fmt.Println("推送中…")
+	if err := pushAgentFromConfig(c); err != nil {
+		fmt.Println(cRed + "✗ " + err.Error() + cReset)
+	} else {
+		fmt.Println(cGreen + "✓ 白名单服务器已更新到 " + version + cReset)
+	}
+	p.pause()
+}
+
+func pushAgentFromConfig(c *config) error {
+	agent, key := c.str("PUNCH_AGENT", ""), c.str("PUNCH_AGENT_KEY", "")
+	if agent == "" || key == "" {
+		return fmt.Errorf("还没有初始化")
+	}
+	if agentVersion(agent, key) == version {
+		return nil
+	}
+	self, err := selfPath()
+	if err != nil {
+		return err
+	}
+	return pushToAgent(agent, key, self, version)
+}
+
+// issueInstall writes a fresh ticket, replacing any earlier one, and returns the command to run.
+func issueInstall(c *config) (string, error) {
+	pub := c.str(keyPublicAddr, "")
+	if pub == "" {
+		return "", fmt.Errorf("还没有设置本机的公网地址，请先初始化（菜单 8）")
+	}
+	if !unitActive(unitCoordinator) {
+		return "", fmt.Errorf("本机服务没有运行，先启动它（菜单 10），安装命令要从它下载程序")
+	}
+	t := installTicket{
+		Code:    newToken()[:32],
+		Expires: time.Now().Add(ticketTTL),
+		Listen:  c.str("PUNCH_AGENT", ""),
+		Key:     c.str("PUNCH_AGENT_KEY", ""),
+		Target:  c.str("PUNCH_TARGET_HINT", "127.0.0.1:34120"),
+	}
+	if err := writeTicket(c.str("PUNCH_STATE", "/var/lib/punch"), t); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("curl -fsSL http://%s/install/%s | bash", pub, t.Code), nil
 }
 
 func (p *panel) firewallSetup() {

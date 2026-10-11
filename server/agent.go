@@ -48,6 +48,8 @@ func (a *agent) handle(c net.Conn) {
 	switch {
 	case f[0] == "PING" && len(f) == 2:
 		fmt.Fprintf(c, "PONG %s\n", version)
+	case f[0] == "PUSH" && len(f) == 5: // PUSH key size sha256 version
+		a.receivePush(c, br, f)
 	case f[0] == "CTUN" && len(f) == 5: // CTUN key clientIP clientPort srcPort
 		src, _ := strconv.Atoi(f[4])
 		remote := net.JoinHostPort(f[2], f[3])
