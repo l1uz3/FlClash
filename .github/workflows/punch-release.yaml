@@ -1,12 +1,12 @@
 name: punch-release
 
-# Creates the GitHub release for a punch-v* tag before the package workflows finish. They all
+# Creates the GitHub release for an app-v* tag before the package workflows finish. They all
 # upload into the same release; if each created it on its own, two of them could race and leave
 # two releases for one tag.
 on:
   push:
     tags:
-      - 'punch-v*'
+      - 'app-v*'
 
 permissions:
   contents: write
@@ -15,6 +15,18 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The app compares its own version with the tag to decide whether to offer an update, so a
+      # tag that disagrees with pubspec.yaml would offer it forever or never.
+      - name: Tag matches the app version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          app="$(sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+)\+[0-9]+$/\1/p' pubspec.yaml)"
+          test "app-v$app" = "$TAG" || { echo "::error::tag $TAG but pubspec.yaml says $app"; exit 1; }
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}

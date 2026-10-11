@@ -121,6 +121,7 @@ const double dialogCommonWidth = 300;
 // Updates and the About link point at this fork: upstream releases lack
 // the punch dialer, so "updating" to one would silently drop it.
 const repository = 'l1uz3/FlClash';
+const appTagPrefix = 'app-v';
 const maxMobileWidth = 600;
 const maxLaptopWidth = 840;
 const defaultTestUrl = 'https://www.gstatic.com/generate_204';

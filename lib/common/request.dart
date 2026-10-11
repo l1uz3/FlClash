@@ -70,15 +70,25 @@ class Request {
 
   Future<Map<String, dynamic>?> checkForUpdate() async {
     try {
+      // Only app-v* releases carry the app; other tags in this repository
+      // are not app updates. Releases are listed newest first.
       final response = await dio.get(
-        'https://api.github.com/repos/$repository/releases/latest',
+        'https://api.github.com/repos/$repository/releases?per_page=30',
         options: Options(responseType: ResponseType.json),
       );
       if (response.statusCode != 200) return null;
-      final data = response.data as Map<String, dynamic>;
+      final data = (response.data as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere(
+            (r) =>
+                r['draft'] != true &&
+                r['prerelease'] != true &&
+                (r['tag_name'] as String? ?? '').startsWith(appTagPrefix),
+            orElse: () => const {},
+          );
+      if (data.isEmpty) return null;
       final tag = data['tag_name'] as String;
-      // Upstream tags are "v1.2.3", this fork's are "punch-v1.2.3".
-      final remoteVersion = tag.replaceFirst(RegExp('^[^0-9]+'), '');
+      final remoteVersion = tag.substring(appTagPrefix.length);
       final version = globalState.packageInfo.version;
       final hasUpdate = compareVersions(remoteVersion, version) > 0;
       if (!hasUpdate) return null;
