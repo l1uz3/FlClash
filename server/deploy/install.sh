@@ -36,18 +36,27 @@ latest_tag() {
 # Downloads the binary for tag, checks it against the release's SHA256SUMS and installs it, keeping
 # the previous binary as $BIN.bak so a bad release can be rolled back.
 install_bin() {
-  local tag="$1" a tmp
+  local tag="$1" a tmp ok=0
   a="$(arch)"
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
+  # Not a RETURN trap: those stay set after the function and fire again in the caller, where $tmp
+  # no longer exists and set -u aborts the script.
+  fetch_verify "$tag" "$a" "$tmp" && ok=1
+  if [ "$ok" = 1 ]; then
+    [ -f "$BIN" ] && cp -p "$BIN" "$BIN.bak"
+    install -m 755 "$tmp/punch" "$BIN"
+  fi
+  rm -rf "$tmp"
+  [ "$ok" = 1 ] || die "下载或校验失败（$tag），没有安装"
+}
+
+fetch_verify() {
+  local tag="$1" a="$2" dir="$3"
   local base="https://github.com/$REPO/releases/download/$tag"
-  curl -fsSL -o "$tmp/punch" "$base/punch-server-linux-$a" || die "下载失败：$tag"
-  curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || die "下载校验文件失败"
-  (cd "$tmp" && grep " punch-server-linux-$a\$" SHA256SUMS | sed "s#punch-server-linux-$a#punch#" | sha256sum -c --quiet) ||
-    die "校验失败，没有安装"
-  chmod 755 "$tmp/punch"
-  [ -f "$BIN" ] && cp -p "$BIN" "$BIN.bak"
-  install -m 755 "$tmp/punch" "$BIN"
+  curl -fsSL -o "$dir/punch" "$base/punch-server-linux-$a" || return 1
+  curl -fsSL -o "$dir/SHA256SUMS" "$base/SHA256SUMS" || return 1
+  (cd "$dir" && grep " punch-server-linux-$a\$" SHA256SUMS | sed "s#punch-server-linux-$a#punch#" | sha256sum -c --quiet) || return 1
+  chmod 755 "$dir/punch"
 }
 
 write_unit() {
