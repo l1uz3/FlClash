@@ -46,14 +46,25 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
 
+      - name: Shell scripts
+        working-directory: server/deploy
+        run: |
+          bash -n install.sh
+          shellcheck -S warning install.sh fw-remove.example.sh
+
+      # install.sh compares `punch version` with the release tag to decide whether to update.
       - name: Build
         run: |
+          ver=dev
+          case "$GITHUB_REF" in refs/tags/punch-v*) ver="${GITHUB_REF#refs/tags/}" ;; esac
           mkdir -p dist
           for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags='-s -w' -o dist/punch-server-linux-$arch .
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -ldflags="-s -w -X main.version=$ver" -o dist/punch-server-linux-$arch .
           done
           cp deploy/* dist/
           (cd dist && sha256sum punch-server-linux-* > SHA256SUMS)
+          test "$(./dist/punch-server-linux-amd64 version)" = "$ver"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -69,3 +80,4 @@ jobs:
           files: |
             server/dist/punch-server-linux-*
             server/dist/SHA256SUMS
+            server/dist/install.sh

@@ -104,10 +104,10 @@ func TestPredictWidensForClimbingNAT(t *testing.T) {
 
 func TestTokensAddAndRevoke(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "tokens")
-	if err := addUser(p, "alice"); err != nil {
+	if _, err := addUser(p, "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := addUser(p, "alice"); err == nil {
+	if _, err := addUser(p, "alice"); err == nil {
 		t.Fatal("duplicate user must be refused")
 	}
 	b, _ := os.ReadFile(p)
@@ -147,5 +147,59 @@ func TestCoordinatorCertIsStable(t *testing.T) {
 	fp3, _ := certFingerprint(filepath.Join(dir, "coord.crt"))
 	if fp1 != fp2 || fp1 != fp3 || len(fp1) != 64 {
 		t.Fatal("clients pin this fingerprint; it must not change across restarts")
+	}
+}
+
+func TestRemoveUserRevokes(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "tokens")
+	a, _ := addUser(p, "alice")
+	b, _ := addUser(p, "bob")
+	if err := removeUser(p, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if userForToken(p, a.Token) != "" || userForToken(p, b.Token) != "bob" {
+		t.Fatal("only alice must be revoked")
+	}
+	if err := removeUser(p, "alice"); err == nil {
+		t.Fatal("removing a missing user must be an error")
+	}
+}
+
+// The panel edits the operator's config file; comments and keys it does not manage must survive.
+func TestSetEnvKeysKeepsOtherLines(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "punch.env")
+	os.WriteFile(p, []byte("# keep me\nPUNCH_AGENT=a:1\nPUNCH_OTHER=x\n"), 0600)
+	if err := setEnvKeys(p, map[string]string{"PUNCH_AGENT": "b:2", "PUNCH_NEW": "y"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(p)
+	want := "# keep me\nPUNCH_AGENT=b:2\nPUNCH_OTHER=x\nPUNCH_NEW=y\n"
+	if string(got) != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestRenderClientYAMLLoadsAsProfile(t *testing.T) {
+	tpl := nodeTemplate{Name: "my node", Cipher: "2022-blake3-aes-256-gcm", Password: "pw", Smux: true}
+	ci := clientInfo{Coordinator: "203.0.113.20:48080", Fingerprint: strings.Repeat("ab", 32), ProbePorts: [2]int{48082, 48084}}
+	y := renderClientYAML(tpl, ci, user{"alice", "tok"})
+	for _, want := range []string{"name: \"my node\"", "token: \"tok\"", "coordinator: 203.0.113.20:48080", "max-connections: 1", "MATCH,PROXY"} {
+		if !strings.Contains(y, want) {
+			t.Fatalf("missing %q in:\n%s", want, y)
+		}
+	}
+	if strings.Contains(y, "probe-ports") {
+		t.Fatal("default probe ports must not be written out")
+	}
+	ci.ProbePorts = [2]int{58082, 58084}
+	if !strings.Contains(renderClientYAML(tpl, ci, user{"a", "t"}), "probe-ports: [58082, 58084]") {
+		t.Fatal("non-default probe ports must be written out")
+	}
+}
+
+func TestUserConfigNeedsSetup(t *testing.T) {
+	c := writeConfig(t, "PUNCH_STATE="+t.TempDir()+"\n")
+	if _, err := userConfig(c, user{"a", "t"}); err == nil {
+		t.Fatal("a config without SS password must not be printed")
 	}
 }
