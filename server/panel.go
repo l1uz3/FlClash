@@ -78,11 +78,11 @@ func (p *panel) header() {
 		}
 	}
 	us, _ := listUsers(c.str("PUNCH_TOKENS", "/etc/punch/tokens"))
-	fw := cYellow + "仅锥型 NAT" + cReset
+	fw := cYellow + "只支持家宽" + cReset
 	if c.str("PUNCH_FW_ADD_URL", "") != "" {
 		fw = cGreen + "已启用（支持手机流量）" + cReset
 	}
-	fmt.Printf("协调服务器 %s   agent %s\n", dot(coordOK, "运行中", "未运行"), agentState)
+	fmt.Printf("本机服务 %s   白名单服务器 %s\n", dot(coordOK, "运行中", "未运行"), agentState)
 	fmt.Printf("用户 %d 个   防火墙 %s   白名单残留 %d\n", len(us), fw, pendingCount(c))
 	fmt.Println("------------------------------------")
 }
@@ -99,7 +99,7 @@ func (p *panel) run() {
 		fmt.Println(" 3. 删除用户")
 		fmt.Println(" 4. 用户列表")
 		fmt.Println("------------------------------------")
-		fmt.Println(" 5. 接入被保护的服务器（agent）")
+		fmt.Println(" 5. 连接白名单服务器")
 		fmt.Println(" 6. 防火墙设置（加白 / 删白）")
 		fmt.Println(" 7. 节点模板")
 		fmt.Println(" 8. 重新初始化")
@@ -227,7 +227,7 @@ func (p *panel) restart() {
 	if _, err := systemctl("restart", unitCoordinator); err != nil {
 		fmt.Println(cRed + "重启失败，看「查看日志」找原因" + cReset)
 	} else {
-		fmt.Println(cGreen + "协调服务器已重启" + cReset)
+		fmt.Println(cGreen + "本机服务已重启" + cReset)
 	}
 	p.pause()
 }
@@ -235,7 +235,7 @@ func (p *panel) restart() {
 func (p *panel) stop() {
 	if p.confirm("停止后所有用户都会断开，确定") {
 		systemctl("stop", unitCoordinator)
-		fmt.Println("协调服务器已停止")
+		fmt.Println("本机服务已停止")
 	}
 	p.pause()
 }

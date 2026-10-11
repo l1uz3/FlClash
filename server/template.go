@@ -100,7 +100,7 @@ func clientInfoFor(c *config) (clientInfo, error) {
 	}
 	fp, err := certFingerprint(statePath(c, "coord.crt"))
 	if err != nil {
-		return clientInfo{}, fmt.Errorf("还没有证书，请先启动协调服务器")
+		return clientInfo{}, fmt.Errorf("还没有证书，请先启动本机服务")
 	}
 	return clientInfo{
 		Coordinator: pub,
