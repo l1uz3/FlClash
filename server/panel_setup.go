@@ -237,14 +237,14 @@ func (p *panel) templateSetup() {
 }
 
 func (p *panel) templateFromSingBox(c *config, path string) {
-	fmt.Printf("加密方式、密码、smux 自动读取本机 sing-box（%s），改了 sing-box 后输出的配置会自动跟着变。\n", path)
+	fmt.Printf("加密方式和密码自动读取本机 sing-box（%s），改了 sing-box 后输出的配置会自动跟着变。\n", path)
+	fmt.Println("sing-box 的这个入站必须开启多路复用（multiplex）。")
 	t, err := resolveNode(c)
 	if err != nil {
 		fmt.Println(cRed + "✗ " + err.Error() + cReset)
-		fmt.Println("检查菜单 5 里填的转发地址，是否和 sing-box 的入站端口一致。")
+		fmt.Println("如果是端口不对，检查菜单 5 里填的转发地址是否和 sing-box 的入站端口一致。")
 	} else {
-		fmt.Printf("\n来源      %s\n加密方式  %s\n密码      %s\nsmux      %s\n",
-			t.Source, t.Cipher, mask(t.Password), map[bool]string{true: "开", false: "关"}[t.Smux])
+		fmt.Printf("\n来源      %s\n加密方式  %s\n密码      %s\n多路复用  已开启\n", t.Source, t.Cipher, mask(t.Password))
 	}
 	name := p.ask("\n节点名", c.str(keyNodeName, "punch"))
 	if err := setEnvKeys(p.cfgPath, map[string]string{keyNodeName: name}); err != nil {
@@ -262,7 +262,7 @@ func (p *panel) templateFromSingBox(c *config, path string) {
 
 func (p *panel) manualTemplate(c *config) {
 	t := templateFromConfig(c)
-	fmt.Println("没有读取 sing-box，手动填写。要和你的代理节点一致。")
+	fmt.Println("没有读取 sing-box，手动填写。要和你的代理节点一致，代理节点必须开启多路复用（smux）。")
 	if c.str(keySingBoxConfig, "") == "off" && defaultSingBoxConfig() != "" &&
 		p.confirm("本机有 sing-box 配置，改回自动读取") {
 		setEnvKeys(p.cfgPath, map[string]string{keySingBoxConfig: ""})
@@ -272,17 +272,13 @@ func (p *panel) manualTemplate(c *config) {
 	name := p.ask("\n节点名", t.Name)
 	cipher := p.ask("加密方式", t.Cipher)
 	pw := p.ask("SS 密码", t.Password)
-	smux := "true"
-	if a := strings.ToLower(p.ask("开启 smux？推荐开启，UDP 需要它（Y/n）", "y")); a == "n" || a == "no" {
-		smux = "false"
-	}
 	if pw == "" {
 		fmt.Println(cRed + "SS 密码不能为空。" + cReset)
 		p.pause()
 		return
 	}
 	if err := setEnvKeys(p.cfgPath, map[string]string{
-		keyNodeName: name, keyNodeCipher: cipher, keyNodePassword: pw, keyNodeSmux: smux,
+		keyNodeName: name, keyNodeCipher: cipher, keyNodePassword: pw,
 	}); err != nil {
 		fmt.Println(cRed + err.Error() + cReset)
 	} else {

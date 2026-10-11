@@ -120,7 +120,10 @@ proxies:
 
 - **协调服务器**：要有公网 IP，开放 TLS 端口和两个探测端口。**不能放在被保护的服务器上**，因为客户端连它时还没加白。
 - **agent**：装在被保护的服务器上，需要 root 权限，以及 `tcpdump`、`iptables`。它和协调服务器之间最好走内网。
-- **代理服务端**：sing-box、Xray 等，agent 把隧道流量转给它，可以和 agent 在同一台机器上。
+- **代理服务端**：sing-box 等，agent 把隧道流量转给它，可以和 agent 在同一台机器上。
+  **它的 Shadowsocks 入站必须开启多路复用**（sing-box 里写 `"multiplex": {"enabled": true}`）：
+  客户端固定使用 smux，UDP 也靠它通过隧道。Xray 的多路复用和 smux 不兼容，不能用。
+  sing-box 和协调服务器装在同一台机器上时，协调服务器会自动读取它的加密方式和密码来生成用户配置。
 
 ### 1. 安装
 

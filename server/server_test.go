@@ -180,7 +180,7 @@ func TestSetEnvKeysKeepsOtherLines(t *testing.T) {
 }
 
 func TestRenderClientYAMLLoadsAsProfile(t *testing.T) {
-	tpl := nodeTemplate{Name: "my node", Cipher: "2022-blake3-aes-256-gcm", Password: "pw", Smux: true}
+	tpl := nodeTemplate{Name: "my node", Cipher: "2022-blake3-aes-256-gcm", Password: "pw"}
 	ci := clientInfo{Coordinator: "203.0.113.20:48080", Fingerprint: strings.Repeat("ab", 32), ProbePorts: [2]int{48082, 48084}}
 	y := renderClientYAML(tpl, ci, user{"alice", "tok"})
 	for _, want := range []string{"name: \"my node\"", "token: \"tok\"", "coordinator: 203.0.113.20:48080", "max-connections: 1", "MATCH,PROXY"} {
@@ -218,18 +218,15 @@ func TestSingBoxNodeFollowsInbound(t *testing.T) {
 		{"type":"vless","listen_port":443},
 		{"type":"shadowsocks","tag":"ss-34120","listen_port":34120,"method":"2022-blake3-aes-256-gcm","password":"srv","multiplex":{"enabled":true}},
 		{"type":"shadowsocks","listen_port":8388,"method":"aes-128-gcm","password":"p2"},
-		{"type":"shadowsocks","listen_port":9000,"method":"2022-blake3-aes-128-gcm","password":"srv","users":[{"name":"a","password":"u1"}]},
+		{"type":"shadowsocks","listen_port":9000,"method":"2022-blake3-aes-128-gcm","password":"srv","users":[{"name":"a","password":"u1"}],"multiplex":{"enabled":true}},
 		{"type":"shadowsocks","listen_port":9100,"method":"aes-128-gcm","password":"x","network":"udp"}]}`)
 
 	n, err := singBoxNode(dir, "198.51.100.1:34120", "node")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n.Cipher != "2022-blake3-aes-256-gcm" || n.Password != "srv" || !n.Smux || n.Name != "node" {
+	if n.Cipher != "2022-blake3-aes-256-gcm" || n.Password != "srv" || n.Name != "node" {
 		t.Fatalf("34120: %+v", n)
-	}
-	if n, _ := singBoxNode(dir, "198.51.100.1:8388", "x"); n.Smux {
-		t.Fatal("no multiplex on the server means no smux on the client")
 	}
 	if n, _ := singBoxNode(dir, "198.51.100.1:9000", "x"); n.Password != "srv:u1" {
 		t.Fatalf("multi-user 2022 needs server:user PSK, got %q", n.Password)
@@ -238,6 +235,7 @@ func TestSingBoxNodeFollowsInbound(t *testing.T) {
 		"198.51.100.1:1":    "no inbound on that port",
 		"198.51.100.1:443":  "not shadowsocks",
 		"198.51.100.1:9100": "UDP only",
+		"198.51.100.1:8388": "multiplex off: the client always uses smux",
 		"no-port":           "bad target",
 	} {
 		if _, err := singBoxNode(dir, target, "x"); err == nil {
@@ -248,7 +246,7 @@ func TestSingBoxNodeFollowsInbound(t *testing.T) {
 
 func TestResolveNodeSingBoxThenTemplate(t *testing.T) {
 	dir := t.TempDir()
-	writeSingBox(t, dir, "config.json", `{"inbounds":[{"type":"shadowsocks","listen_port":34120,"method":"m","password":"from-singbox"}]}`)
+	writeSingBox(t, dir, "config.json", `{"inbounds":[{"type":"shadowsocks","listen_port":34120,"method":"m","password":"from-singbox","multiplex":{"enabled":true}}]}`)
 	base := "PUNCH_TARGET_HINT=198.51.100.1:34120\nPUNCH_NODE_PASSWORD=from-template\n"
 
 	n, err := resolveNode(writeConfig(t, base+"PUNCH_SINGBOX_CONFIG="+dir+"\n"))
@@ -267,10 +265,12 @@ func TestResolveNodeSingBoxThenTemplate(t *testing.T) {
 	}
 }
 
-func TestRenderOmitsUDPWithoutSmux(t *testing.T) {
+func TestRenderAlwaysUsesSmux(t *testing.T) {
 	ci := clientInfo{Coordinator: "203.0.113.20:48080", Fingerprint: strings.Repeat("ab", 32), ProbePorts: [2]int{48082, 48084}}
 	y := renderClientYAML(nodeTemplate{Name: "n", Cipher: "c", Password: "p"}, ci, user{"a", "t"})
-	if strings.Contains(y, "udp: true") || strings.Contains(y, "smux") {
-		t.Fatalf("without smux the tunnel cannot carry UDP:\n%s", y)
+	for _, want := range []string{"udp: true", "enabled: true", "protocol: h2mux", "max-connections: 1"} {
+		if !strings.Contains(y, want) {
+			t.Fatalf("missing %q:\n%s", want, y)
+		}
 	}
 }

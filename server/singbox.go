@@ -129,11 +129,13 @@ func singBoxNode(path, target, name string) (nodeTemplate, error) {
 	if hit.Network == "udp" {
 		return nodeTemplate{}, fmt.Errorf("端口 %d 的入站只开了 UDP，打洞隧道只能承载 TCP", port)
 	}
+	if hit.Multiplex == nil || !hit.Multiplex.Enabled {
+		return nodeTemplate{}, fmt.Errorf("端口 %d 的入站没有开启多路复用，请在 sing-box 里给它加上 \"multiplex\": {\"enabled\": true} 再重启 sing-box", port)
+	}
 	return nodeTemplate{
 		Name:     name,
 		Cipher:   hit.Method,
 		Password: pw,
-		Smux:     hit.Multiplex != nil && hit.Multiplex.Enabled,
 		Source:   fmt.Sprintf("sing-box %s（%s）", strings.TrimSpace(firstNonEmpty(hit.Tag, portStr)), hit.source),
 	}, nil
 }
