@@ -104,6 +104,14 @@ func (fw firewall) addVia(relay net.Conn) (string, error) {
 }
 
 func (fw firewall) remove(cidr string) string {
+	out, err := fw.removeErr(cidr)
+	if err != nil {
+		return "remove failed: " + err.Error() + " " + out
+	}
+	return out
+}
+
+func (fw firewall) removeErr(cidr string) (string, error) {
 	argv := make([]string, 0, len(fw.Remove)+1)
 	replaced := false
 	for _, a := range fw.Remove {
@@ -117,10 +125,7 @@ func (fw firewall) remove(cidr string) string {
 		argv = append(argv, cidr)
 	}
 	out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
-	if err != nil {
-		return "remove failed: " + err.Error() + " " + firstLine(string(out))
-	}
-	return firstLine(string(out))
+	return firstLine(string(out)), err
 }
 
 func prefixOf(ip string, bits int) string {

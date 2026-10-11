@@ -1,37 +1,47 @@
 // Command punch-server is the server side of the FlClash punch dialer: a coordinator on a public
-// host and an agent on the firewalled server. Example configs and units are in server/deploy.
+// host and an agent on the firewalled server. Run without arguments for the management panel.
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 )
 
-const usage = `usage: punch-server <command> [-config FILE]
+const installScriptURL = "https://github.com/l1uz3/FlClash/releases/latest/download/install.sh"
 
-commands:
-  coordinator         run the rendezvous server
-  agent               run the dial-back agent on the firewalled server
-  add-user NAME       add a client token to the tokens file and print it
-  fingerprint         print the coordinator certificate fingerprint clients pin
+const usage = `用法：punch [命令] [-config 文件]
+
+不带命令运行进入管理面板。
+
+用户：
+  punch user add 名字        添加用户并输出配置
+  punch user show 名字       输出已有用户的配置
+  punch user del 名字        删除用户（立即失效）
+  punch user list            用户列表
+
+服务：
+  punch status               服务状态
+  punch fingerprint          协调服务器证书指纹
+  punch agent-cmd            输出在被保护服务器上安装 agent 的命令
+  punch version              版本
+
+由 systemd 调用：
+  punch coordinator          运行协调服务器
+  punch agent                运行 agent
 `
 
 func main() {
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
-	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
-	}
-	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
-	cfgPath := fs.String("config", "/etc/punch/punch.env", "KEY=VALUE config file")
-	// flag stops at the first positional argument; parse what follows it too so
-	// "add-user NAME -config FILE" works as well as "add-user -config FILE NAME".
+	fs := flag.NewFlagSet("punch", flag.ExitOnError)
+	cfgPath := fs.String("config", "/etc/punch/punch.env", "配置文件")
+	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
+	// flag stops at the first positional argument; keep parsing after it so
+	// "user add NAME -config FILE" works as well as "-config FILE user add NAME".
 	var args []string
-	for rest := os.Args[2:]; ; {
+	for rest := os.Args[1:]; ; {
 		fs.Parse(rest)
 		if fs.NArg() == 0 {
 			break
@@ -39,11 +49,16 @@ func main() {
 		args = append(args, fs.Arg(0))
 		rest = fs.Args()[1:]
 	}
-	cfg, err := loadConfig(*cfgPath)
-	if err != nil {
-		fail(err)
+	if len(args) == 0 {
+		requireRoot()
+		(&panel{cfgPath: *cfgPath, in: bufio.NewReader(os.Stdin)}).run()
+		return
 	}
-	switch os.Args[1] {
+	cfg, err := loadConfig(*cfgPath)
+	if err != nil && args[0] != "version" && args[0] != "help" {
+		fail(fmt.Errorf("读取配置 %s 失败：%v（先运行 punch 初始化）", *cfgPath, err))
+	}
+	switch args[0] {
 	case "coordinator":
 		cc, err := coordFromConfig(cfg)
 		if err != nil {
@@ -56,50 +71,138 @@ func main() {
 			fail(err)
 		}
 		fail(runAgent(ac))
-	case "add-user":
-		if len(args) != 1 || strings.ContainsAny(args[0], " \t\n#") {
-			fail(fmt.Errorf("add-user needs one NAME without spaces"))
-		}
-		fail(addUser(cfg.str("PUNCH_TOKENS", "/etc/punch/tokens"), args[0]))
+	case "user":
+		fail(userCmd(cfg, args[1:]))
+	case "add-user": // kept for scripts written against the first release
+		fail(userCmd(cfg, append([]string{"add"}, args[1:]...)))
 	case "fingerprint":
-		fp, err := certFingerprint(filepath.Join(cfg.str("PUNCH_STATE", "/var/lib/punch"), "coord.crt"))
+		fp, err := certFingerprint(statePath(cfg, "coord.crt"))
 		if err != nil {
-			fail(fmt.Errorf("no certificate yet (start the coordinator once): %v", err))
+			fail(fmt.Errorf("还没有证书，请先启动协调服务器"))
 		}
 		fmt.Println(fp)
+	case "status":
+		printStatus(cfg)
+	case "agent-cmd":
+		agent, key := cfg.str("PUNCH_AGENT", ""), cfg.str("PUNCH_AGENT_KEY", "")
+		if agent == "" || key == "" {
+			fail(fmt.Errorf("还没有初始化"))
+		}
+		fmt.Println(agentInstallCommand(agent, key, cfg.str("PUNCH_TARGET_HINT", "127.0.0.1:34120")))
+	case "version":
+		fmt.Println(version)
+	case "help", "-h", "--help":
+		fmt.Print(usage)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+	os.Exit(0)
 }
 
-func addUser(path, name string) error {
-	if b, err := os.ReadFile(path); err == nil {
-		for _, l := range strings.Split(string(b), "\n") {
-			if f := strings.Fields(l); len(f) == 2 && f[0] == name {
-				return fmt.Errorf("user %s already exists; delete its line in %s to revoke it first", name, path)
-			}
+func userCmd(cfg *config, args []string) error {
+	tokens := cfg.str("PUNCH_TOKENS", "/etc/punch/tokens")
+	if len(args) == 0 {
+		return fmt.Errorf("用法：punch user add|show|del|list [名字]")
+	}
+	needName := func() (string, error) {
+		if len(args) != 2 {
+			return "", fmt.Errorf("用法：punch user %s 名字", args[0])
+		}
+		return args[1], nil
+	}
+	switch args[0] {
+	case "add":
+		name, err := needName()
+		if err != nil {
+			return err
+		}
+		if err := checkCanRender(cfg); err != nil {
+			return err
+		}
+		u, err := addUser(tokens, name)
+		if err != nil {
+			return err
+		}
+		out, err := userConfig(cfg, u)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+	case "show":
+		name, err := needName()
+		if err != nil {
+			return err
+		}
+		u, ok := findUser(tokens, name)
+		if !ok {
+			return fmt.Errorf("用户 %s 不存在", name)
+		}
+		out, err := userConfig(cfg, u)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+	case "del", "rm", "remove":
+		name, err := needName()
+		if err != nil {
+			return err
+		}
+		return removeUser(tokens, name)
+	case "list", "ls":
+		us, err := listUsers(tokens)
+		if err != nil {
+			return err
+		}
+		for _, u := range us {
+			fmt.Println(u.Name)
+		}
+	default:
+		return fmt.Errorf("未知命令 user %s", args[0])
+	}
+	return nil
+}
+
+// checkCanRender fails before a user is created when no config could be printed for them, so a
+// half-configured server does not leave behind users nobody received a config for.
+func checkCanRender(cfg *config) error {
+	_, err := userConfig(cfg, user{Name: "-", Token: "-"})
+	return err
+}
+
+func printStatus(cfg *config) {
+	fmt.Printf("版本        %s\n", version)
+	fmt.Printf("协调服务器  %s\n", map[bool]string{true: "运行中", false: "未运行"}[unitActive(unitCoordinator)])
+	agent, key := cfg.str("PUNCH_AGENT", ""), cfg.str("PUNCH_AGENT_KEY", "")
+	switch {
+	case agent == "" || key == "":
+		fmt.Println("agent       未配置")
+	default:
+		if v := agentVersion(agent, key); v != "" {
+			fmt.Printf("agent       已连接（%s，%s）\n", agent, v)
+		} else {
+			fmt.Printf("agent       连不上（%s）\n", agent)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
+	us, _ := listUsers(cfg.str("PUNCH_TOKENS", "/etc/punch/tokens"))
+	fmt.Printf("用户        %d\n", len(us))
+	if cfg.str("PUNCH_FW_ADD_URL", "") != "" {
+		fmt.Println("防火墙      已启用（支持手机流量）")
+	} else {
+		fmt.Println("防火墙      未启用（仅锥型 NAT）")
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
+	fmt.Printf("白名单残留  %d\n", pendingCount(cfg))
+}
+
+func requireRoot() {
+	if os.Geteuid() != 0 {
+		fail(fmt.Errorf("管理面板需要 root 运行"))
 	}
-	defer f.Close()
-	tok := newToken()
-	if _, err := fmt.Fprintf(f, "%s %s\n", name, tok); err != nil {
-		return err
-	}
-	fmt.Println(tok)
-	return nil
 }
 
 func fail(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "punch-server:", err)
+		fmt.Fprintln(os.Stderr, "punch:", err)
 		os.Exit(1)
 	}
 	os.Exit(0)
