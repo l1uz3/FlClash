@@ -10,8 +10,6 @@ import (
 	"os"
 )
 
-const installScriptURL = "https://github.com/l1uz3/FlClash/releases/latest/download/install.sh"
-
 const usage = `用法：punch [命令] [-config 文件]
 
 不带命令运行进入管理面板。
@@ -25,7 +23,8 @@ const usage = `用法：punch [命令] [-config 文件]
 服务：
   punch status               服务状态
   punch fingerprint          协调服务器证书指纹
-  punch install-cmd          输出在白名单服务器上运行的安装命令
+  punch install-cmd          输出在白名单服务器上运行的安装命令（10 分钟内有效）
+  punch push-agent           把本机的版本推送给白名单服务器
   punch version              版本
 
 由 systemd 调用（不用手动运行）：
@@ -84,11 +83,13 @@ func main() {
 	case "status":
 		printStatus(cfg)
 	case "install-cmd":
-		agent, key := cfg.str("PUNCH_AGENT", ""), cfg.str("PUNCH_AGENT_KEY", "")
-		if agent == "" || key == "" {
-			fail(fmt.Errorf("还没有初始化"))
+		cmd, err := issueInstall(cfg)
+		if err != nil {
+			fail(err)
 		}
-		fmt.Println(agentInstallCommand(agent, key, cfg.str("PUNCH_TARGET_HINT", "127.0.0.1:34120")))
+		fmt.Println(cmd)
+	case "push-agent":
+		fail(pushAgentFromConfig(cfg))
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":

@@ -173,7 +173,10 @@ cmd_update() {
   tag="$(latest_tag)"
   [ -n "$tag" ] || exit 0
   cur="$("$BIN" version 2>/dev/null || true)"
-  [ "$cur" = "$tag" ] && exit 0
+  if [ "$cur" = "$tag" ]; then
+    sync_agent
+    exit 0
+  fi
   install_bin "$tag"
   systemctl restart "$unit"
   sleep 3
@@ -184,6 +187,15 @@ cmd_update() {
     exit 1
   fi
   green "已从 $cur 更新到 $tag"
+  sync_agent
+}
+
+# The whitelisted server usually cannot reach GitHub, so the coordinator hands it its own binary.
+# Also run when the coordinator is already current, which retries an agent that missed a push.
+sync_agent() {
+  [ "$(cat "$ETC/role" 2>/dev/null)" = coordinator ] || return 0
+  "$BIN" push-agent >/dev/null 2>&1 && return 0
+  red "白名单服务器没有更新成功，运行 punch push-agent 查看原因"
 }
 
 cmd_uninstall() {

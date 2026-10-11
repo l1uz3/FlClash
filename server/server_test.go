@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bufio"
+	"crypto/tls"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, body string) *config {
@@ -272,5 +277,92 @@ func TestRenderAlwaysUsesSmux(t *testing.T) {
 		if !strings.Contains(y, want) {
 			t.Fatalf("missing %q:\n%s", want, y)
 		}
+	}
+}
+
+func TestInstallTicketSingleUseAndExpiry(t *testing.T) {
+	dir := t.TempDir()
+	tk := installTicket{Code: strings.Repeat("c", 32), Expires: time.Now().Add(time.Minute), Key: "k"}
+	if err := writeTicket(dir, tk); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(ticketPath(dir)); fi.Mode().Perm() != 0600 {
+		t.Fatal("the ticket holds the agent key and must be root-only")
+	}
+	if _, ok := takeTicket(dir, strings.Repeat("d", 32), false); ok {
+		t.Fatal("wrong code accepted")
+	}
+	if _, ok := takeTicket(dir, tk.Code, false); !ok {
+		t.Fatal("valid code refused")
+	}
+	if _, ok := takeTicket(dir, tk.Code, true); !ok {
+		t.Fatal("done call refused")
+	}
+	if _, ok := takeTicket(dir, tk.Code, false); ok {
+		t.Fatal("a consumed ticket must not be reusable")
+	}
+	tk.Expires = time.Now().Add(-time.Second)
+	writeTicket(dir, tk)
+	if _, ok := takeTicket(dir, tk.Code, false); ok {
+		t.Fatal("expired ticket accepted")
+	}
+}
+
+func TestCoordinatorPortServesInstallAndTLS(t *testing.T) {
+	state := t.TempDir()
+	tlsCfg, _, err := coordTLS(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	co := &coordinator{cfg: &coordConfig{State: state, PublicAddr: raw.Addr().String()}}
+	ln := newTLSListener(raw, tlsCfg, co.serveInstall)
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { c.(*tls.Conn).Handshake(); c.Write([]byte("tls-ok\n")); c.Close() }()
+		}
+	}()
+	code := strings.Repeat("e", 32)
+	writeTicket(state, installTicket{Code: code, Expires: time.Now().Add(time.Minute), Listen: "10.0.0.2:48081", Key: "secret", Target: "127.0.0.1:1"})
+
+	get := func(path string) (int, string) {
+		r, err := http.Get("http://" + raw.Addr().String() + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r.StatusCode, string(b)
+	}
+	if st, _ := get("/install/" + strings.Repeat("x", 32)); st != 404 {
+		t.Fatalf("wrong code: %d", st)
+	}
+	st, body := get("/install/" + code)
+	if st != 200 || !strings.Contains(body, "PUNCH_AGENT_KEY=secret") || !strings.Contains(body, "/install/"+code+"/punch") {
+		t.Fatalf("script: %d\n%s", st, body)
+	}
+	if st, _ := get("/install/" + code + "/done"); st != 200 {
+		t.Fatalf("done: %d", st)
+	}
+	if st, _ := get("/install/" + code); st != 404 {
+		t.Fatal("the link must close once the install reports done")
+	}
+
+	c, err := tls.Dial("tcp", raw.Addr().String(), &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatalf("TLS clients must still reach the coordinator: %v", err)
+	}
+	l, _ := bufio.NewReader(c).ReadString('\n')
+	c.Close()
+	if l != "tls-ok\n" {
+		t.Fatalf("tls: %q", l)
 	}
 }
