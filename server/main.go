@@ -25,12 +25,12 @@ const usage = `用法：punch [命令] [-config 文件]
 服务：
   punch status               服务状态
   punch fingerprint          协调服务器证书指纹
-  punch agent-cmd            输出在被保护服务器上安装 agent 的命令
+  punch install-cmd          输出在白名单服务器上运行的安装命令
   punch version              版本
 
-由 systemd 调用：
-  punch coordinator          运行协调服务器
-  punch agent                运行 agent
+由 systemd 调用（不用手动运行）：
+  punch coordinator          本机服务
+  punch agent                白名单服务器上的服务
 `
 
 func main() {
@@ -78,12 +78,12 @@ func main() {
 	case "fingerprint":
 		fp, err := certFingerprint(statePath(cfg, "coord.crt"))
 		if err != nil {
-			fail(fmt.Errorf("还没有证书，请先启动协调服务器"))
+			fail(fmt.Errorf("还没有证书，请先启动本机服务"))
 		}
 		fmt.Println(fp)
 	case "status":
 		printStatus(cfg)
-	case "agent-cmd":
+	case "install-cmd":
 		agent, key := cfg.str("PUNCH_AGENT", ""), cfg.str("PUNCH_AGENT_KEY", "")
 		if agent == "" || key == "" {
 			fail(fmt.Errorf("还没有初始化"))
@@ -171,27 +171,27 @@ func checkCanRender(cfg *config) error {
 }
 
 func printStatus(cfg *config) {
-	fmt.Printf("版本        %s\n", version)
-	fmt.Printf("协调服务器  %s\n", map[bool]string{true: "运行中", false: "未运行"}[unitActive(unitCoordinator)])
+	fmt.Printf("版本          %s\n", version)
+	fmt.Printf("本机服务      %s\n", map[bool]string{true: "运行中", false: "未运行"}[unitActive(unitCoordinator)])
 	agent, key := cfg.str("PUNCH_AGENT", ""), cfg.str("PUNCH_AGENT_KEY", "")
 	switch {
 	case agent == "" || key == "":
-		fmt.Println("agent       未配置")
+		fmt.Println("白名单服务器  未配置")
 	default:
 		if v := agentVersion(agent, key); v != "" {
-			fmt.Printf("agent       已连接（%s，%s）\n", agent, v)
+			fmt.Printf("白名单服务器  已连接（%s，%s）\n", agent, v)
 		} else {
-			fmt.Printf("agent       连不上（%s）\n", agent)
+			fmt.Printf("白名单服务器  连不上（%s）\n", agent)
 		}
 	}
 	us, _ := listUsers(cfg.str("PUNCH_TOKENS", "/etc/punch/tokens"))
-	fmt.Printf("用户        %d\n", len(us))
+	fmt.Printf("用户          %d\n", len(us))
 	if cfg.str("PUNCH_FW_ADD_URL", "") != "" {
-		fmt.Println("防火墙      已启用（支持手机流量）")
+		fmt.Println("防火墙        已启用（支持手机流量）")
 	} else {
-		fmt.Println("防火墙      未启用（仅锥型 NAT）")
+		fmt.Println("防火墙        未启用（只支持家宽，不支持手机流量）")
 	}
-	fmt.Printf("白名单残留  %d\n", pendingCount(cfg))
+	fmt.Printf("白名单残留    %d\n", pendingCount(cfg))
 }
 
 func requireRoot() {

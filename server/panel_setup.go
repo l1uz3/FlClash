@@ -16,6 +16,13 @@ import (
 
 func randomHex(n int) string { return newToken()[:n] }
 
+func withDefaultPort(addr, port string) string {
+	if addr == "" || strings.Contains(addr, ":") {
+		return addr
+	}
+	return addr + ":" + port
+}
+
 // detectPublicIP asks an echo service; it is only a default the operator confirms.
 func detectPublicIP() string {
 	cl := &http.Client{Timeout: 5 * time.Second}
@@ -37,16 +44,17 @@ func (p *panel) setup() {
 	c := p.cfg()
 	fmt.Println("\n== 初始化 ==")
 	fmt.Println("只问几个必须由你决定的问题，其余自动生成。直接回车使用方括号里的值。")
-	fmt.Println("前提：本机和被保护的服务器必须内网互通。")
+	fmt.Println("这里说的「白名单服务器」，就是防火墙只放行白名单、用户实际要连的那台机器。")
+	fmt.Println("前提：本机和白名单服务器必须内网互通（比如同一家云、同一个地域）。")
 	def := c.str(keyPublicAddr, "")
 	if def == "" {
 		if ip := detectPublicIP(); ip != "" {
 			def = ip + ":48080"
 		}
 	}
-	pub := p.ask("\n1) 客户端连接本机用的地址（公网IP:端口）", def)
-	server := p.ask("2) 被保护服务器的公网 IP（客户端要连到它）", c.str("PUNCH_SERVER_IP", ""))
-	agent := p.ask("3) agent 的内网地址（被保护服务器的内网IP:端口）", c.str("PUNCH_AGENT", ""))
+	pub := p.ask("\n1) 本机的公网地址（公网IP:端口，用户的 App 会连这里）", def)
+	server := p.ask("2) 白名单服务器的公网 IP", c.str("PUNCH_SERVER_IP", ""))
+	agent := withDefaultPort(p.ask("3) 白名单服务器的内网 IP（本机通过内网访问它）", c.str("PUNCH_AGENT", "")), "48081")
 	if pub == "" || server == "" || agent == "" {
 		fmt.Println(cRed + "三项都要填，已取消。" + cReset)
 		p.pause()
@@ -79,13 +87,13 @@ func (p *panel) setup() {
 	if unitInstalled(unitCoordinator) {
 		systemctl("enable", unitCoordinator)
 		if _, err := systemctl("restart", unitCoordinator); err == nil {
-			fmt.Println(cGreen + "协调服务器已启动。" + cReset)
+			fmt.Println(cGreen + "本机服务已启动。" + cReset)
 		} else {
-			fmt.Println(cRed + "协调服务器启动失败，看「查看日志」。" + cReset)
+			fmt.Println(cRed + "本机服务启动失败，看「查看日志」。" + cReset)
 		}
 	}
 	fmt.Println("\n下一步：")
-	fmt.Println("  · 菜单 5：在被保护的服务器上装 agent")
+	fmt.Println("  · 菜单 5：连接白名单服务器")
 	fmt.Println("  · 菜单 7：设置节点的 SS 密码等")
 	fmt.Println("  · 需要支持手机流量时，菜单 6 设置防火墙")
 	p.pause()
@@ -99,17 +107,17 @@ func (p *panel) agentSetup() {
 		p.pause()
 		return
 	}
-	fmt.Println("\n== 接入被保护的服务器 ==")
-	target := p.ask("agent 把流量转发到哪（代理服务端地址，如 sing-box）", c.str("PUNCH_TARGET_HINT", "127.0.0.1:34120"))
+	fmt.Println("\n== 连接白名单服务器 ==")
+	target := p.ask("用户的流量最终交给哪个节点（你的 sing-box / Xray 等的 IP:端口）", c.str("PUNCH_TARGET_HINT", "127.0.0.1:34120"))
 	setEnvKeys(p.cfgPath, map[string]string{"PUNCH_TARGET_HINT": target})
-	fmt.Print("\n在" + cBold + "被保护的服务器" + cReset + "上用 root 运行下面这一行（已包含密钥）：\n\n")
+	fmt.Print("\n登录" + cBold + "白名单服务器" + cReset + "，用 root 运行下面这一行（已包含密钥）：\n\n")
 	fmt.Printf("%s\n", agentInstallCommand(agent, key, target))
-	fmt.Println("\n它会安装 tcpdump、iptables 和 agent，并设为开机自启。")
+	fmt.Println("\n它会在那台机器上装好需要的程序，并设为开机自启。")
 	if p.confirm("\n运行完后按 y 测试连接") {
 		if err := pingAgent(agent, key); err != nil {
 			fmt.Println(cRed + "✗ " + err.Error() + cReset)
 		} else {
-			fmt.Println(cGreen + "✓ agent 已连接" + cReset)
+			fmt.Println(cGreen + "✓ 白名单服务器已连接" + cReset)
 		}
 	}
 	p.pause()
@@ -123,15 +131,15 @@ func agentInstallCommand(listen, key, target string) string {
 func (p *panel) firewallSetup() {
 	c := p.cfg()
 	fmt.Println("\n== 防火墙设置 ==")
-	fmt.Println("只有客户端在对称型 NAT 后（大多数手机流量）才需要。家宽可以不设。")
+	fmt.Println("让用户在手机流量下也能连才需要设置。只在家宽 WiFi 下用的话可以跳过。")
 	fmt.Println("需要两样东西：")
 	fmt.Println("  · 加白地址：一个 HTTPS 地址，谁访问它就把谁加进白名单")
 	fmt.Println("  · 删白命令：本机上的一条命令，参数是要删除的网段，删掉后返回 0")
 	if c.str("PUNCH_FW_ADD_URL", "") != "" {
 		fmt.Println(cGreen + "\n当前已启用。" + cReset)
-		if p.confirm("关闭防火墙支持（只接受锥型 NAT）") {
+		if p.confirm("关闭手机流量支持（之后只支持家宽）") {
 			setEnvKeys(p.cfgPath, map[string]string{"PUNCH_FW_ADD_URL": ""})
-			fmt.Println("已关闭，重启协调服务器后生效（菜单 10）。")
+			fmt.Println("已关闭，重启本机服务后生效（菜单 10）。")
 			p.pause()
 			return
 		}
@@ -192,7 +200,7 @@ func (p *panel) firewallSetup() {
 	if err := setEnvKeys(p.cfgPath, kv); err != nil {
 		fmt.Println(cRed + "保存失败：" + err.Error() + cReset)
 	} else {
-		fmt.Println(cGreen + "已保存。重启协调服务器后生效（菜单 10）。" + cReset)
+		fmt.Println(cGreen + "已保存。重启本机服务后生效（菜单 10）。" + cReset)
 	}
 	p.pause()
 }
@@ -222,7 +230,7 @@ func (p *panel) templateSetup() {
 	c := p.cfg()
 	t := templateFromConfig(c)
 	fmt.Println("\n== 节点模板 ==")
-	fmt.Println("这里的设置会用在之后输出的每一份用户配置里。要和代理服务端（sing-box 等）一致。")
+	fmt.Println("这里的设置会用在之后输出的每一份用户配置里，要和你的 sing-box / Xray 节点一致。")
 	name := p.ask("\n节点名", t.Name)
 	cipher := p.ask("加密方式", t.Cipher)
 	pw := p.ask("SS 密码", t.Password)

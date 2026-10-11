@@ -147,8 +147,8 @@ EOF
   systemctl enable punch-agent >/dev/null
   systemctl restart punch-agent
   sleep 1
-  systemctl is-active --quiet punch-agent || die "agent 启动失败：journalctl -u punch-agent -n 30"
-  green "agent 已安装并运行（$tag），监听 $listen。回到协调服务器的面板测试连接。"
+  systemctl is-active --quiet punch-agent || die "启动失败，查看原因：journalctl -u punch-agent -n 30"
+  green "已安装并运行（$tag），监听 $listen。回到另一台机器的面板，按 y 测试连接。"
 }
 
 # Replaces the binary only when a newer release exists, restarts the service, and puts the old

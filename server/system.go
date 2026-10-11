@@ -33,13 +33,13 @@ func unitInstalled(unit string) bool {
 func pingAgent(addr, key string) error {
 	c, err := net.DialTimeout("tcp", addr, 4*time.Second)
 	if err != nil {
-		return fmt.Errorf("连不上 %s：%v（检查内网是否互通、agent 是否在运行、端口是否正确）", addr, err)
+		return fmt.Errorf("连不上白名单服务器 %s：%v（检查内网是否互通、那台机器上的安装命令是否运行成功）", addr, err)
 	}
 	defer c.Close()
 	fmt.Fprintf(c, "PING %s\n", key)
 	l, err := readLine(c, bufio.NewReader(c), 4*time.Second)
 	if err != nil || !strings.HasPrefix(l, "PONG") {
-		return fmt.Errorf("连上了 %s，但 agent 没有回应（多半是两边的 PUNCH_AGENT_KEY 不一致）", addr)
+		return fmt.Errorf("连上了白名单服务器 %s，但它没有回应（多半是两边的密钥不一致，重新运行一次菜单 5 给出的命令）", addr)
 	}
 	return nil
 }
