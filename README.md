@@ -60,15 +60,13 @@ FlClash ──SS 加密──▶ 打洞隧道（yamux 复用）──▶ agent�
 
 ## 下载
 
-到 [Releases](https://github.com/l1uz3/FlClash/releases) 下载。还没有正式版时，去 [Actions](https://github.com/l1uz3/FlClash/actions)
-打开对应工作流（`punch-android` / `punch-desktop` / `punch-server`）最近一次成功的运行，在页面底部下载。
+到 [Releases](https://github.com/l1uz3/FlClash/releases) 下载 `app-v*` 版本。
 
 | 平台 | 安装包 | 说明 |
 | --- | --- | --- |
 | Android | `arm64-v8a`、`armeabi-v7a`、`x86_64` 三种 APK | 包名是 `com.follow.clash.punch`，**可以和官方 FlClash 同时安装**。绝大多数手机选 `arm64-v8a`。 |
 | Windows 10 及以上 | 安装版 `.exe` 或便携版 `.zip`（x64） | **会覆盖官方 FlClash**。安装包没有签名，SmartScreen 拦截时点"更多信息 → 仍要运行"。 |
 | macOS 12 及以上 | Apple 芯片和 Intel 两种 `.dmg` | **会覆盖官方 FlClash**。没有签名，第一次打开时去"系统设置 → 隐私与安全性"点"仍要打开"；如果提示已损坏，运行 `xattr -cr /Applications/FlClash.app`。 |
-| 服务端 | `punch-server-linux-amd64` / `arm64` | 协调服务器和 agent 用同一个程序，只支持 Linux。 |
 
 ## 客户端配置
 
@@ -116,61 +114,15 @@ proxies:
 
 ## 自建服务端
 
-服务端涉及三个角色：
+服务端在单独的仓库 **[l1uz3/punch-server](https://github.com/l1uz3/punch-server)**：协调服务器、白名单服务器上的 agent，
+以及控制台管理面板。在协调服务器上运行安装脚本后，输入 `punch` 按提示操作，添加用户时会直接输出上面那样的完整配置。
 
-- **协调服务器**：要有公网 IP，开放 TLS 端口和两个探测端口。**不能放在被保护的服务器上**，因为客户端连它时还没加白。
-- **agent**：装在被保护的服务器上，需要 root 权限，以及 `tcpdump`、`iptables`。它和协调服务器之间最好走内网。
-- **代理服务端**：sing-box 等，agent 把隧道流量转给它，可以和 agent 在同一台机器上。
-  **它的 Shadowsocks 入站必须开启多路复用**（sing-box 里写 `"multiplex": {"enabled": true}`）：
+需要满足：
+
+- **协调服务器**有公网 IP。**不能和白名单服务器是同一台**，因为客户端连它时还没加白。
+- **白名单服务器**和协调服务器**内网互通**（云厂商之间的专线也算）。它不需要访问外网，程序由协调服务器提供。
+- 协调服务器上的 **sing-box** Shadowsocks 入站**必须开启多路复用**（`"multiplex": {"enabled": true}`）：
   客户端固定使用 smux，UDP 也靠它通过隧道。Xray 的多路复用和 smux 不兼容，不能用。
-  sing-box 和协调服务器装在同一台机器上时，协调服务器会自动读取它的加密方式和密码来生成用户配置。
-
-### 1. 安装
-
-从 Releases 下载 `punch-server-linux-<架构>`，在协调服务器和被保护的服务器上都放到 `/usr/local/bin/punch-server`，
-并加上执行权限。配置示例和 systemd 服务模板在 [`server/deploy/`](server/deploy)。
-
-### 2. 协调服务器
-
-```bash
-install -d -m 700 /etc/punch /var/lib/punch
-cp coordinator.env.example /etc/punch/punch.env && chmod 600 /etc/punch/punch.env
-# 编辑 /etc/punch/punch.env，至少填 PUNCH_AGENT、PUNCH_AGENT_KEY、PUNCH_SERVER_IP
-cp punch-coordinator.service /etc/systemd/system/
-systemctl enable --now punch-coordinator
-punch-server fingerprint          # 输出客户端要填的 fingerprint
-punch-server add-user alice       # 输出 alice 的口令；要吊销就删掉 /etc/punch/tokens 里对应的那行
-```
-
-`PUNCH_AGENT_KEY` 是协调服务器和 agent 之间的共享密钥，可以用 `openssl rand -hex 32` 生成，两边填同一个值。
-
-### 3. agent（被保护的服务器）
-
-```bash
-apt-get install -y tcpdump iptables
-install -d -m 700 /etc/punch
-cp agent.env.example /etc/punch/punch.env && chmod 600 /etc/punch/punch.env
-# 填 PUNCH_AGENT_LISTEN（只监听内网地址）、PUNCH_AGENT_KEY、PUNCH_TARGET（代理服务端的地址）
-cp punch-agent.service /etc/systemd/system/
-systemctl enable --now punch-agent
-```
-
-`PUNCH_LEARN_PORT`（默认 45000）在被保护的服务器上**不能有程序监听**，客户端的探测 SYN 和回连都用这个端口。
-
-### 4. 支持对称型 NAT（可选）
-
-不配置这一步时，协调服务器只接受锥型 NAT 的客户端，对称型 NAT 的客户端会被明确拒绝。要支持手机流量，
-在协调服务器的 `punch.env` 里补上：
-
-| 配置项 | 说明 |
-| --- | --- |
-| `PUNCH_FW_ADD_URL` | 访问即加白的 HTTPS 地址，里面可以带密钥，客户端看不到。 |
-| `PUNCH_FW_ADD_PIN` | 这个地址证书的 SHA-256。**必填**，不填协调服务器会拒绝启动。获取方法见示例文件里的注释。 |
-| `PUNCH_FW_ADD_RESULT` | 一个正则，从加白接口的响应里取出被加白的 IP（以及可选的前缀长度）。 |
-| `PUNCH_FW_REMOVE` | 删白命令，`{cidr}` 会被替换成要删的网段。**确实删掉之后才能返回 0**。参考 [`fw-remove.example.sh`](server/deploy/fw-remove.example.sh)。 |
-| `PUNCH_REMOVE_WAIT` | 删白后等待多少秒再继续，默认 6。防火墙生效慢就调大。 |
-
-协调服务器会把每个加过白的网段记在 `/var/lib/punch/wl_pending`。就算进程中途被杀，重启后一分钟内也会把残留的白名单删掉。
 
 ## 已知限制
 
@@ -189,10 +141,9 @@ systemctl enable --now punch-agent
 | --- | --- |
 | `core/Clash.Meta`（子模块） | 指向 [l1uz3/Clash.Meta](https://github.com/l1uz3/Clash.Meta/tree/punch) 的 `punch` 分支：新增 `component/punch/`；`adapter/outbound/base.go` 加 `punch` 字段；TUN 默认网卡变化时调用 `punch.NetworkChanged()`。 |
 | `core/lib.go` | Android 更新 DNS（也就是切换了网络）时，重置打洞连接。 |
-| `server/` | 新增服务端 `punch-server`。 |
 | `android/` | 包名改为 `com.follow.clash.punch`；去掉 Firebase 依赖和插件。 |
-| `lib/` | 去掉崩溃上报开关、数据收集提示，以及免责声明里的 Firebase 部分；`repository` 改为本分支；检查更新兼容 `punch-v*` 标签。 |
-| `.github/workflows/punch-*.yaml` | 新增 Android、桌面、服务端的构建与发布。上游的 `build.yaml` 没有改动。 |
+| `lib/` | 去掉崩溃上报开关、数据收集提示，以及免责声明里的 Firebase 部分；`repository` 改为本分支；检查更新只认 `app-v*` 标签。 |
+| `.github/workflows/punch-*.yaml` | 新增 Android、桌面的构建与发布，打 `app-v*` 标签时发版。上游的 `build.yaml` 没有改动。 |
 | `README.md` | 本文件。删除了上游的 `README_zh_CN.md`。 |
 
 ## 构建
@@ -204,11 +155,10 @@ flutter pub get
 dart setup.dart android   # 或 windows、macos、linux
 ```
 
-需要的工具链和上游一样，见[上游 README](https://github.com/chen08209/FlClash#build-from-source)。服务端：
+需要的工具链和上游一样，见[上游 README](https://github.com/chen08209/FlClash#build-from-source)。
 
-```bash
-cd server && go build -o punch-server .
-```
+版本号和上游一致，不要改 `pubspec.yaml`。发版时在 `main` 上打 `app-v<版本号>` 标签，例如 `app-v0.8.99`；
+标签和版本号不一致时打包会直接失败。同一个上游版本只能发一次，客户端的改动随下次同步上游一起发。
 
 ## 许可证
 

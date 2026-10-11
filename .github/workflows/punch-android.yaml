@@ -3,14 +3,14 @@ name: punch-android
 # Signed Android build for this fork. The upstream build.yaml only packages on
 # chen08209/FlClash tags, so it never produces an APK here.
 # main only changes through pull requests, which build here first; pushes to main and
-# punch-v* tags then build the packages that get shipped.
+# app-v* tags then build the packages that get shipped.
 on:
   workflow_dispatch:
   push:
     branches:
       - main
     tags:
-      - 'punch-v*'
+      - 'app-v*'
   pull_request:
     branches:
       - main
@@ -131,7 +131,7 @@ jobs:
 
       # punch-release creates the release; uploading only avoids two workflows creating it at once.
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/punch-v')
+        if: startsWith(github.ref, 'refs/tags/app-v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

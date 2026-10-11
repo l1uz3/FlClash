@@ -137,7 +137,10 @@ class CommonAction extends _$CommonAction {
       if (res == true) {
         unawaited(
           launchUrl(
-            Uri.parse('https://github.com/$repository/releases/latest'),
+            Uri.parse(
+              data['html_url'] as String? ??
+                  'https://github.com/$repository/releases',
+            ),
           ),
         );
       } else if (!isUser && res == false) {
