@@ -83,7 +83,13 @@ func (p *panel) header() {
 		fw = cGreen + "已启用（支持手机流量）" + cReset
 	}
 	fmt.Printf("本机服务 %s   白名单服务器 %s\n", dot(coordOK, "运行中", "未运行"), agentState)
-	fmt.Printf("用户 %d 个   防火墙 %s   白名单残留 %d\n", len(us), fw, pendingCount(c))
+	node := cGreen + "sing-box" + cReset
+	if t, err := resolveNode(c); err != nil {
+		node = cRed + "有问题（菜单 7）" + cReset
+	} else if t.Source == "手动模板" {
+		node = cYellow + "手动模板" + cReset
+	}
+	fmt.Printf("用户 %d 个   节点 %s   防火墙 %s   白名单残留 %d\n", len(us), node, fw, pendingCount(c))
 	fmt.Println("------------------------------------")
 }
 

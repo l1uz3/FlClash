@@ -184,6 +184,11 @@ func printStatus(cfg *config) {
 			fmt.Printf("白名单服务器  连不上（%s）\n", agent)
 		}
 	}
+	if t, err := resolveNode(cfg); err != nil {
+		fmt.Printf("代理节点      有问题：%v\n", err)
+	} else {
+		fmt.Printf("代理节点      %s，%s，smux %s\n", t.Source, t.Cipher, map[bool]string{true: "开", false: "关"}[t.Smux])
+	}
 	us, _ := listUsers(cfg.str("PUNCH_TOKENS", "/etc/punch/tokens"))
 	fmt.Printf("用户          %d\n", len(us))
 	if cfg.str("PUNCH_FW_ADD_URL", "") != "" {
