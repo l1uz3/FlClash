@@ -12,6 +12,7 @@ type nodeTemplate struct {
 	Cipher   string
 	Password string
 	Smux     bool
+	Source   string
 }
 
 const (
@@ -28,7 +29,32 @@ func templateFromConfig(c *config) nodeTemplate {
 		Cipher:   c.str(keyNodeCipher, "2022-blake3-aes-256-gcm"),
 		Password: c.str(keyNodePassword, ""),
 		Smux:     c.str(keyNodeSmux, "true") != "false",
+		Source:   "手动模板",
 	}
+}
+
+func singBoxPath(c *config) string {
+	switch v := c.str(keySingBoxConfig, ""); v {
+	case "off":
+		return ""
+	case "":
+		return defaultSingBoxConfig()
+	default:
+		return v
+	}
+}
+
+// A sing-box config that exists but does not fit is an error, never a fallback to the template.
+func resolveNode(c *config) (nodeTemplate, error) {
+	name := c.str(keyNodeName, "punch")
+	if path := singBoxPath(c); path != "" {
+		return singBoxNode(path, c.str("PUNCH_TARGET_HINT", ""), name)
+	}
+	t := templateFromConfig(c)
+	if t.Password == "" {
+		return t, fmt.Errorf("没有找到 sing-box 配置，节点模板里也没有设置 SS 密码，请在菜单「节点模板」里设置")
+	}
+	return t, nil
 }
 
 type clientInfo struct {
@@ -66,8 +92,9 @@ func renderClientYAML(t nodeTemplate, ci clientInfo, u user) string {
 	fmt.Fprintf(&b, "    port: 1\n")
 	fmt.Fprintf(&b, "    cipher: %s\n", t.Cipher)
 	fmt.Fprintf(&b, "    password: %s\n", q(t.Password))
-	fmt.Fprintf(&b, "    udp: true\n")
 	if t.Smux {
+		// The tunnel carries only TCP; UDP needs smux to ride inside it.
+		fmt.Fprintf(&b, "    udp: true\n")
 		fmt.Fprintf(&b, "    smux:\n")
 		fmt.Fprintf(&b, "      enabled: true\n")
 		fmt.Fprintf(&b, "      protocol: h2mux\n")
@@ -113,9 +140,9 @@ func clientInfoFor(c *config) (clientInfo, error) {
 }
 
 func userConfig(c *config, u user) (string, error) {
-	t := templateFromConfig(c)
-	if t.Password == "" {
-		return "", fmt.Errorf("节点模板还没有设置 SS 密码，请在菜单「节点模板」里设置")
+	t, err := resolveNode(c)
+	if err != nil {
+		return "", err
 	}
 	ci, err := clientInfoFor(c)
 	if err != nil {

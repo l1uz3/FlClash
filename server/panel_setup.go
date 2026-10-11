@@ -228,9 +228,47 @@ func fetchPin(u *url.URL) (string, error) {
 
 func (p *panel) templateSetup() {
 	c := p.cfg()
-	t := templateFromConfig(c)
 	fmt.Println("\n== 节点模板 ==")
-	fmt.Println("这里的设置会用在之后输出的每一份用户配置里，要和你的 sing-box / Xray 节点一致。")
+	if path := singBoxPath(c); path != "" {
+		p.templateFromSingBox(c, path)
+		return
+	}
+	p.manualTemplate(c)
+}
+
+func (p *panel) templateFromSingBox(c *config, path string) {
+	fmt.Printf("加密方式、密码、smux 自动读取本机 sing-box（%s），改了 sing-box 后输出的配置会自动跟着变。\n", path)
+	t, err := resolveNode(c)
+	if err != nil {
+		fmt.Println(cRed + "✗ " + err.Error() + cReset)
+		fmt.Println("检查菜单 5 里填的转发地址，是否和 sing-box 的入站端口一致。")
+	} else {
+		fmt.Printf("\n来源      %s\n加密方式  %s\n密码      %s\nsmux      %s\n",
+			t.Source, t.Cipher, mask(t.Password), map[bool]string{true: "开", false: "关"}[t.Smux])
+	}
+	name := p.ask("\n节点名", c.str(keyNodeName, "punch"))
+	if err := setEnvKeys(p.cfgPath, map[string]string{keyNodeName: name}); err != nil {
+		fmt.Println(cRed + err.Error() + cReset)
+	} else {
+		fmt.Println(cGreen + "已保存。" + cReset)
+	}
+	if p.confirm("\n改成手动填写（不再读取 sing-box）") {
+		setEnvKeys(p.cfgPath, map[string]string{keySingBoxConfig: "off"})
+		p.manualTemplate(p.cfg())
+		return
+	}
+	p.pause()
+}
+
+func (p *panel) manualTemplate(c *config) {
+	t := templateFromConfig(c)
+	fmt.Println("没有读取 sing-box，手动填写。要和你的代理节点一致。")
+	if c.str(keySingBoxConfig, "") == "off" && defaultSingBoxConfig() != "" &&
+		p.confirm("本机有 sing-box 配置，改回自动读取") {
+		setEnvKeys(p.cfgPath, map[string]string{keySingBoxConfig: ""})
+		p.templateFromSingBox(p.cfg(), singBoxPath(p.cfg()))
+		return
+	}
 	name := p.ask("\n节点名", t.Name)
 	cipher := p.ask("加密方式", t.Cipher)
 	pw := p.ask("SS 密码", t.Password)
@@ -251,4 +289,11 @@ func (p *panel) templateSetup() {
 		fmt.Println(cGreen + "已保存。" + cReset)
 	}
 	p.pause()
+}
+
+func mask(s string) string {
+	if len(s) <= 8 {
+		return "****"
+	}
+	return s[:4] + "…" + s[len(s)-4:]
 }
