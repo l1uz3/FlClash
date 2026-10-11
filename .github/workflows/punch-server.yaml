@@ -73,11 +73,19 @@ jobs:
           path: server/dist/*
           if-no-files-found: error
 
+      # punch-release creates the release; uploading only avoids two workflows creating it at once.
       - name: Release
         if: startsWith(github.ref, 'refs/tags/punch-v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            server/dist/punch-server-linux-*
-            server/dist/SHA256SUMS
-            server/dist/install.sh
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          for i in $(seq 1 30); do
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            sleep 10
+          done
+          shopt -s nullglob
+          files=(dist/punch-server-linux-* dist/SHA256SUMS dist/install.sh)
+          test ${#files[@]} -gt 0 || { echo "::error::nothing to upload"; exit 1; }
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber "${files[@]}"

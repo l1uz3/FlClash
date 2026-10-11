@@ -1,0 +1,27 @@
+name: punch-release
+
+# Creates the GitHub release for a punch-v* tag before the package workflows finish. They all
+# upload into the same release; if each created it on its own, two of them could race and leave
+# two releases for one tag.
+on:
+  push:
+    tags:
+      - 'punch-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists"
+            exit 0
+          fi
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
